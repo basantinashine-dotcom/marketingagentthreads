@@ -22,6 +22,9 @@ BASE_URL = "https://graph.threads.net/v1.0"
 SEARCH_FIELDS = "id,text,media_type,permalink,timestamp,username"
 
 
+COMMENT_FIELDS = "id,text,username,permalink,timestamp,replied_to,hide_status"
+
+
 @dataclass(frozen=True)
 class ThreadsPost:
     id: str
@@ -30,6 +33,23 @@ class ThreadsPost:
     permalink: str
     timestamp: str
     media_type: str = "TEXT"
+
+
+@dataclass(frozen=True)
+class Comment(ThreadsPost):
+    replied_to_id: str = ""
+    hidden: bool = False
+
+
+def _post_from(item: dict[str, Any]) -> ThreadsPost:
+    return ThreadsPost(
+        id=item["id"],
+        text=item.get("text") or "",
+        username=item.get("username", ""),
+        permalink=item.get("permalink", ""),
+        timestamp=item.get("timestamp", ""),
+        media_type=item.get("media_type", "TEXT"),
+    )
 
 
 class ThreadsAPIError(Exception):
@@ -124,11 +144,44 @@ class ThreadsClient:
         total = int((data.get("reply_config") or {}).get("quota_total", 1000))
         return used, total
 
+    def my_posts(self, *, since: int | None = None, limit: int = 25) -> list[ThreadsPost]:
+        """Your own top-level posts, newest first (threads_basic)."""
+        params: dict[str, Any] = {"fields": SEARCH_FIELDS, "limit": limit}
+        if since is not None:
+            params["since"] = since
+        body = self._get("/me/threads", params)
+        return [_post_from(item) for item in body.get("data", []) if item.get("id")]
+
+    def conversation(self, media_id: str, *, limit: int = 100) -> list[Comment]:
+        """Every reply under one of your posts, nested ones included (threads_read_replies)."""
+        body = self._get(
+            f"/{media_id}/conversation",
+            {"fields": COMMENT_FIELDS, "reverse": "false", "limit": limit},
+        )
+        comments = []
+        for item in body.get("data", []):
+            if not item.get("id"):
+                continue
+            post = _post_from(item)
+            comments.append(
+                Comment(
+                    **post.__dict__,
+                    replied_to_id=(item.get("replied_to") or {}).get("id", ""),
+                    hidden=item.get("hide_status") not in (None, "NOT_HUSHED", "UNHUSHED"),
+                )
+            )
+        return comments
+
     def reply(self, reply_to_id: str, text: str, *, max_wait_s: float = 30.0) -> str:
         """Publishes a text reply. Returns the new post's media id."""
-        container = self._post(
-            "/me/threads", {"media_type": "TEXT", "text": text, "reply_to_id": reply_to_id}
-        )
+        return self.publish(text, reply_to_id=reply_to_id, max_wait_s=max_wait_s)
+
+    def publish(self, text: str, *, reply_to_id: str | None = None, max_wait_s: float = 30.0) -> str:
+        """Publishes a text post, or a reply when reply_to_id is given. Returns its media id."""
+        data: dict[str, Any] = {"media_type": "TEXT", "text": text}
+        if reply_to_id:
+            data["reply_to_id"] = reply_to_id
+        container = self._post("/me/threads", data)
         creation_id = container["id"]
         self._wait_until_ready(creation_id, max_wait_s)
         published = self._post("/me/threads_publish", {"creation_id": creation_id})

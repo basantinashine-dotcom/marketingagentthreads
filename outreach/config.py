@@ -43,6 +43,8 @@ class LimitsConfig:
     author_cooldown_days: int = 30
     max_reply_age_hours: int = 72
     retention_days: int = 30
+    max_new_posts_per_day: int = 3
+    comment_lookback_days: int = 7  # check comments on your posts from this many days back
 
 
 @dataclass(frozen=True)

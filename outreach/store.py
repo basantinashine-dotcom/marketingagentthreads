@@ -1,4 +1,8 @@
-"""SQLite state: every discovered post moves through one row.
+"""SQLite state: one row per thing that might get published.
+
+kind: "search"  a stranger's post found by keyword search (needs Meta App Review)
+      "comment" someone's comment on one of your posts
+      "post"    a new post of your own
 
 new -> drafted | skipped -> approved | rejected -> posted | failed | skipped
 """
@@ -7,6 +11,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -34,11 +39,18 @@ CREATE TABLE IF NOT EXISTS posts (
     reply_id        TEXT,
     reply_permalink TEXT,
     replied_at      TEXT,
-    error           TEXT
+    error           TEXT,
+    kind            TEXT NOT NULL DEFAULT 'search',
+    context         TEXT
 );
 CREATE INDEX IF NOT EXISTS posts_status ON posts(status);
 CREATE INDEX IF NOT EXISTS posts_username ON posts(username);
 """
+# Columns added after the first release, for databases created before them.
+MIGRATIONS = {
+    "kind": "ALTER TABLE posts ADD COLUMN kind TEXT NOT NULL DEFAULT 'search'",
+    "context": "ALTER TABLE posts ADD COLUMN context TEXT",
+}
 
 
 @dataclass(frozen=True)
@@ -56,6 +68,8 @@ class Row:
     draft_link_line: str | None
     final_text: str | None
     includes_link: bool
+    kind: str = "search"
+    context: str = ""
 
 
 def _iso(dt: datetime) -> str:
@@ -67,28 +81,61 @@ class Store:
         self._db = sqlite3.connect(str(path))
         self._db.row_factory = sqlite3.Row
         self._db.executescript(SCHEMA)
+        columns = {r[1] for r in self._db.execute("PRAGMA table_info(posts)")}
+        for column, sql in MIGRATIONS.items():
+            if column not in columns:
+                self._db.execute(sql)
+        self._db.commit()
 
     def close(self) -> None:
         self._db.close()
 
     # -- discovery -----------------------------------------------------------
 
-    def add_post(self, post: ThreadsPost, query: str, now: datetime) -> bool:
+    def add_post(
+        self, post: ThreadsPost, query: str, now: datetime, *, kind: str = "search", context: str = ""
+    ) -> bool:
         cur = self._db.execute(
-            "INSERT OR IGNORE INTO posts (id, username, text, permalink, posted_at, query, discovered_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (post.id, post.username, post.text, post.permalink, post.timestamp, query, _iso(now)),
+            "INSERT OR IGNORE INTO posts (id, username, text, permalink, posted_at, query, discovered_at,"
+            " kind, context) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (post.id, post.username, post.text, post.permalink, post.timestamp, query, _iso(now), kind,
+             context or None),
         )
         self._db.commit()
         return cur.rowcount == 1
 
-    def with_status(self, status: str, limit: int | None = None) -> list[Row]:
-        sql = "SELECT * FROM posts WHERE status = ? ORDER BY discovered_at"
+    def add_new_post(self, body: str, link_line: str, theme: str, now: datetime) -> str:
+        """Stores a draft for a new post of your own and returns its id."""
+        post_id = f"post-{uuid.uuid4().hex[:8]}"
+        self._db.execute(
+            "INSERT INTO posts (id, username, text, query, discovered_at, status, kind, rationale,"
+            " draft_body, draft_link_line) VALUES (?, '', '', 'new post', ?, 'drafted', 'post', ?, ?, ?)",
+            (post_id, _iso(now), theme, body, link_line),
+        )
+        self._db.commit()
+        return post_id
+
+    def with_status(self, status: str, limit: int | None = None, *, kind: str | None = None) -> list[Row]:
+        sql = "SELECT * FROM posts WHERE status = ?"
         args: tuple = (status,)
+        if kind is not None:
+            sql += " AND kind = ?"
+            args += (kind,)
+        sql += " ORDER BY discovered_at"
         if limit is not None:
             sql += " LIMIT ?"
             args += (limit,)
         return [_row(r) for r in self._db.execute(sql, args)]
+
+    def find(self, id_or_suffix: str) -> Row | None:
+        """Looks a row up by its full id or a unique ending of it (at least 4 characters)."""
+        row = self._db.execute("SELECT * FROM posts WHERE id = ?", (id_or_suffix,)).fetchone()
+        if row is not None:
+            return _row(row)
+        if len(id_or_suffix) < 4:
+            return None
+        rows = self._db.execute("SELECT * FROM posts WHERE id LIKE ?", (f"%{id_or_suffix}",)).fetchall()
+        return _row(rows[0]) if len(rows) == 1 else None
 
     def save_draft(
         self,
@@ -161,10 +208,13 @@ class Store:
         row = self._db.execute("SELECT MAX(replied_at) FROM posts WHERE status = 'posted'").fetchone()
         return datetime.fromisoformat(row[0]) if row and row[0] else None
 
-    def posted_since(self, since: datetime) -> int:
-        return self._db.execute(
-            "SELECT COUNT(*) FROM posts WHERE status = 'posted' AND replied_at >= ?", (_iso(since),)
-        ).fetchone()[0]
+    def posted_since(self, since: datetime, *, kinds: tuple[str, ...] | None = None) -> int:
+        sql = "SELECT COUNT(*) FROM posts WHERE status = 'posted' AND replied_at >= ?"
+        args: tuple = (_iso(since),)
+        if kinds:
+            sql += f" AND kind IN ({','.join('?' * len(kinds))})"
+            args += kinds
+        return self._db.execute(sql, args).fetchone()[0]
 
     def link_counts(self, since: datetime) -> tuple[int, int]:
         """(replies with link, all replies) among posted + approved since `since`."""
@@ -231,6 +281,8 @@ def _row(r: sqlite3.Row) -> Row:
         draft_link_line=r["draft_link_line"],
         final_text=r["final_text"],
         includes_link=bool(r["includes_link"]),
+        kind=r["kind"] or "search",
+        context=r["context"] or "",
     )
 
 

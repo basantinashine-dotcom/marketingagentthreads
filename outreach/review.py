@@ -1,4 +1,4 @@
-"""Interactive review: a person approves, edits or skips every draft."""
+"""Approving drafts: interactively in a terminal, or one at a time from the CLI."""
 
 from __future__ import annotations
 
@@ -21,6 +21,37 @@ Out = Callable[[str], None]
 RULE = "-" * 72
 
 
+def category_of(row: Row) -> Category | None:
+    return Category(row.category) if row.category else None
+
+
+def can_link(row: Row) -> bool:
+    return policy.link_allowed(category_of(row), row.draft_link_line or "", kind=row.kind)
+
+
+def compose_row(cfg: Config, row: Row, include_link: bool) -> str:
+    return policy.compose(
+        category_of(row), row.draft_body or "", row.draft_link_line or "", cfg.site.link_url,
+        include_link, kind=row.kind,
+    )
+
+
+def link_budget_ok(cfg: Config, store: Store, now: datetime) -> bool:
+    with_link, total = store.link_counts(now - timedelta(days=cfg.site.ratio_window_days))
+    return policy.link_budget_available(with_link, total, cfg.site.max_link_ratio)
+
+
+def approve_text(cfg: Config, store: Store, row: Row, text: str, now: datetime) -> list[str]:
+    """Approves `text` for `row` if it passes every rule. Returns the problems otherwise."""
+    problems = policy.validate(text, cfg.site.link_url)
+    has_link = cfg.site.link_url in text
+    if has_link and not link_budget_ok(cfg, store, now):
+        problems.append("the link budget is used up for this week; approve it without the link")
+    if not problems:
+        store.approve(row.id, text, has_link, now)
+    return problems
+
+
 def _ago(timestamp: str, now: datetime) -> str:
     ts = parse_ts(timestamp)
     if ts is None:
@@ -29,22 +60,38 @@ def _ago(timestamp: str, now: datetime) -> str:
     return f"{hours * 60:.0f}m ago" if hours < 1 else f"{hours:.0f}h ago"
 
 
-def _indent(text: str) -> str:
+def _indent(text: str, prefix: str = "    ") -> str:
     return "\n".join(
-        textwrap.fill(
-            line, 68, initial_indent="    ", subsequent_indent="    ",
-            break_long_words=False, break_on_hyphens=False,
-        )
-        if line
-        else ""
+        textwrap.fill(line, 68, initial_indent=prefix, subsequent_indent=prefix,
+                      break_long_words=False, break_on_hyphens=False) if line else ""
         for line in text.splitlines()
     )
+
+
+def describe(row: Row, text: str, now: datetime, index: str = "") -> str:
+    lines = [RULE]
+    if row.kind == "post":
+        lines.append(f"{index}NEW POST · {row.rationale or ''}   id {row.id}")
+    elif row.kind == "comment":
+        lines.append(f"{index}@{row.username} commented on your post · {_ago(row.posted_at, now)}   id {row.id}")
+        lines.append(_indent((row.context or "")[:200], "  │ "))
+        lines += ["", _indent(row.text)]
+    else:
+        lines.append(f"{index}@{row.username} · {_ago(row.posted_at, now)} · found via \"{row.query}\"   id {row.id}")
+        lines += ["", _indent(row.text)]
+    if row.permalink:
+        lines.append(f"  {row.permalink}")
+    if row.kind != "post":
+        lines += ["", f"  {row.category}: {row.rationale or ''}"]
+    label = "Your post" if row.kind == "post" else "Your reply"
+    lines += ["", f"  {label} ({len(text)}/{policy.MAX_POST_CHARS}):", _indent(text)]
+    return "\n".join(lines)
 
 
 def edit_with_editor(text: str) -> str:
     editor = os.environ.get("EDITOR")
     if not editor:
-        return input("New reply (one line, Enter to keep current):\n> ").strip() or text
+        return input("New text (one line, Enter to keep current):\n> ").strip() or text
     with tempfile.NamedTemporaryFile("w+", suffix=".txt", delete=False) as fh:
         fh.write(text)
         path = fh.name
@@ -68,47 +115,39 @@ def review(
     counts = {"approved": 0, "skipped": 0, "left": 0}
     drafts = store.with_status("drafted")
     if not drafts:
-        out("Nothing to review. Run `outreach discover` first.")
+        out("Nothing to review. Run `outreach inbox` or `outreach compose` first.")
         return counts
 
     link_url = cfg.site.link_url
-    for index, row in enumerate(drafts, start=1):
-        category = Category(row.category or Category.NOT_RELEVANT)
-        link_line = row.draft_link_line or ""
-        body = row.draft_body or ""
-        include_link = policy.link_allowed(category, link_line) and _link_budget_ok(cfg, store, now_fn())
+    for i, row in enumerate(drafts, start=1):
+        include_link = can_link(row) and link_budget_ok(cfg, store, now_fn())
         edited: str | None = None
 
         while True:
-            text = edited if edited is not None else policy.compose(
-                category, body, link_line, link_url, include_link
-            )
-            errors = policy.validate(text, link_url)
-            flags = policy.warnings(text)
-            _show(out, index, len(drafts), row, category, text, errors, flags, now_fn())
+            text = edited if edited is not None else compose_row(cfg, row, include_link)
+            out(describe(row, text, now_fn(), f"[{i}/{len(drafts)}]  "))
+            for err in policy.validate(text, link_url):
+                out(f"  ✗ {err}")
+            for flag in policy.warnings(text):
+                out(f"  ⚠ {flag}")
 
             choice = prompt("[a]pprove  [e]dit  [l]ink on/off  [s]kip  [q]uit > ").strip().lower()
             if choice == "a":
-                has_link = link_url in text
-                if errors:
-                    out("  Can't approve until these are fixed. Edit the reply or skip it.")
+                problems = approve_text(cfg, store, row, text, now_fn())
+                if problems:
+                    out("  Can't approve yet: " + "; ".join(problems))
                     continue
-                if has_link and not _link_budget_ok(cfg, store, now_fn()):
-                    out("  Link budget used up for this week. Turn the link off or skip.")
-                    continue
-                store.approve(row.id, text, has_link, now_fn())
                 counts["approved"] += 1
                 break
             if choice == "e":
                 edited = edit(text)
                 continue
             if choice == "l":
-                if not policy.link_allowed(category, link_line):
-                    out("  No link line was drafted for this post.")
+                if not can_link(row):
+                    out("  No link line was drafted for this one.")
                     continue
-                if not include_link and not _link_budget_ok(cfg, store, now_fn()):
-                    with_link, total = store.link_counts(_window(cfg, now_fn()))
-                    out(f"  Link budget used: {with_link} of your last {total} replies have it.")
+                if not include_link and not link_budget_ok(cfg, store, now_fn()):
+                    out("  The link budget is used up for this week.")
                     continue
                 include_link = not include_link
                 if edited is not None:
@@ -120,45 +159,8 @@ def review(
                 counts["skipped"] += 1
                 break
             if choice == "q":
-                counts["left"] = len(drafts) - index + 1
+                counts["left"] = len(drafts) - i + 1
                 return counts
             out("  Type a, e, l, s or q.")
 
     return counts
-
-
-def _window(cfg: Config, now: datetime) -> datetime:
-    return now - timedelta(days=cfg.site.ratio_window_days)
-
-
-def _link_budget_ok(cfg: Config, store: Store, now: datetime) -> bool:
-    with_link, total = store.link_counts(_window(cfg, now))
-    return policy.link_budget_available(with_link, total, cfg.site.max_link_ratio)
-
-
-def _show(
-    out: Out,
-    index: int,
-    total: int,
-    row: Row,
-    category: Category,
-    text: str,
-    errors: list[str],
-    flags: list[str],
-    now: datetime,
-) -> None:
-    out(RULE)
-    out(f"[{index}/{total}]  @{row.username} · {_ago(row.posted_at, now)} · found via \"{row.query}\"")
-    if row.permalink:
-        out(f"  {row.permalink}")
-    out("")
-    out(_indent(row.text))
-    out("")
-    out(f"  {category.value}: {row.rationale or ''}")
-    out("")
-    out(f"  Your reply ({len(text)}/{policy.MAX_POST_CHARS}):")
-    out(_indent(text))
-    for err in errors:
-        out(f"  ✗ {err}")
-    for flag in flags:
-        out(f"  ⚠ {flag}")

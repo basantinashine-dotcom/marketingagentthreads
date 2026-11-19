@@ -12,6 +12,9 @@ class FakeThreads:
         self.replies: list[tuple[str, str]] = []
         self.fail_reply_for: set[str] = set()
         self.quota = (0, 1000)
+        self.posts = []
+        self.comments = {}
+        self.published = []
 
     def me(self):
         return "42", self.username
@@ -30,6 +33,24 @@ class FakeThreads:
         self.replies.append((reply_to_id, text))
         return f"r{reply_to_id}"
 
+    posts: list = []
+    comments: dict = {}
+    published: list = []
+
+    def my_posts(self, since=None, limit=25):
+        return list(self.posts)
+
+    def conversation(self, media_id):
+        if media_id == "broken":
+            raise ThreadsAPIError(403, "no permission", 10)
+        return list(self.comments.get(media_id, []))
+
+    def publish(self, text, reply_to_id=None):
+        if reply_to_id:
+            return self.reply(reply_to_id, text)
+        self.published.append(text)
+        return f"p{len(self.published)}"
+
     def permalink(self, media_id):
         return f"https://www.threads.com/@me/post/{media_id}"
 
@@ -41,7 +62,7 @@ class FakeDrafter:
         self.by_id = by_id or {}
         self.calls: list[str] = []
 
-    def assess(self, post, query=""):
+    def assess(self, post, query="", context=""):
         self.calls.append(post.id)
         return self.by_id.get(post.id, support())
 

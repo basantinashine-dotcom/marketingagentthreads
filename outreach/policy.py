@@ -45,6 +45,11 @@ NEVER_REPLY = frozenset(
 )
 
 
+# Never replied to, but a comment like this on your own post is shown to you,
+# in case you want to reach out yourself.
+NEEDS_YOU = frozenset({Category.CRISIS, Category.MEDICAL_EMERGENCY, Category.GRIEF_OR_LOSS})
+
+
 @dataclass(frozen=True)
 class Decision:
     status: str  # "drafted" or "skipped"
@@ -61,13 +66,23 @@ def decide(category: Category, should_reply: bool, body: str) -> Decision:
     return Decision("drafted")
 
 
-def link_allowed(category: Category, link_line: str) -> bool:
-    return category in LINK_OK and LINK_PLACEHOLDER in link_line
+def link_allowed(category: Category | None, link_line: str, *, kind: str = "search") -> bool:
+    if LINK_PLACEHOLDER not in link_line:
+        return False
+    return kind == "post" or category in LINK_OK
 
 
-def compose(category: Category, body: str, link_line: str, link_url: str, include_link: bool) -> str:
+def compose(
+    category: Category | None,
+    body: str,
+    link_line: str,
+    link_url: str,
+    include_link: bool,
+    *,
+    kind: str = "search",
+) -> str:
     body = body.strip()
-    if include_link and link_allowed(category, link_line):
+    if include_link and link_allowed(category, link_line, kind=kind):
         return f"{body}\n\n{link_line.strip().replace(LINK_PLACEHOLDER, link_url)}"
     return body
 

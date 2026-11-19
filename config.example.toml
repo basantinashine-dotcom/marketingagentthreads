@@ -25,7 +25,7 @@ link_url = "https://lettersfornewmom.com/?utm_source=threads&utm_medium=social&u
 max_link_ratio = 0.67
 ratio_window_days = 7
 
-# Phase 2 only: needs Meta's approval of threads_keyword_search.
+# Only for `discover`, which needs Meta's App Review approval of threads_keyword_search.
 [search]
 keywords = [
     "postpartum",
@@ -45,8 +45,10 @@ results_per_query = 25
 min_text_length = 25
 
 [limits]
-max_drafts_per_run = 25        # Claude calls per `discover`
-max_posts_per_day = 10
+max_new_posts_per_day = 3      # new posts of your own
+comment_lookback_days = 7      # `inbox` checks comments on your posts from this far back
+max_drafts_per_run = 25        # Claude calls per `inbox` / `discover`
+max_posts_per_day = 10         # replies
 seconds_between_posts = 300
 author_cooldown_days = 30      # never reply to the same person twice in this window
 max_reply_age_hours = 72       # don't post a reply under a post older than this
