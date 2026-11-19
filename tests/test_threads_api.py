@@ -14,6 +14,7 @@ def test_keyword_search_params_and_parsing():
     def handler(request: httpx.Request):
         seen.update(dict(request.url.params))
         assert request.url.path == "/v1.0/keyword_search"
+        assert request.headers["authorization"] == "Bearer tok"
         return httpx.Response(200, json={"data": [
             {"id": "1", "text": "hello", "username": "a", "permalink": "p", "timestamp": "t"},
             {"id": "2", "media_type": "IMAGE"},  # no text: dropped
@@ -22,7 +23,7 @@ def test_keyword_search_params_and_parsing():
     posts = client_with(handler).keyword_search("postpartum", tag=True, since=123, limit=10)
     assert [p.id for p in posts] == ["1"]
     assert seen["q"] == "postpartum" and seen["search_mode"] == "TAG" and seen["since"] == "123"
-    assert seen["search_type"] == "RECENT" and seen["access_token"] == "tok"
+    assert seen["search_type"] == "RECENT" and "access_token" not in seen
 
 
 def test_reply_creates_waits_and_publishes():

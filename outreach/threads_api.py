@@ -49,7 +49,9 @@ class ThreadsClient:
     ):
         if not access_token:
             raise ValueError("A Threads access token is required.")
-        self._token = access_token
+        # Sent as a header, not a URL parameter, so the token stays out of logs
+        # and a credential-injecting proxy can supply it.
+        self._headers = {"Authorization": f"Bearer {access_token}"}
         self._http = http or httpx.Client(timeout=30.0)
         self._base = base_url.rstrip("/")
         self._sleep = sleep
@@ -57,10 +59,9 @@ class ThreadsClient:
     # -- low level -----------------------------------------------------------
 
     def _get(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
-        params = {**params, "access_token": self._token}
         last_error: ThreadsAPIError | None = None
         for attempt in range(3):
-            resp = self._http.get(f"{self._base}{path}", params=params)
+            resp = self._http.get(f"{self._base}{path}", params=params, headers=self._headers)
             if resp.status_code == 429 or resp.status_code >= 500:
                 last_error = _error_from(resp)
                 self._sleep(2.0 * (attempt + 1))
@@ -71,7 +72,7 @@ class ThreadsClient:
 
     def _post(self, path: str, data: dict[str, Any]) -> dict[str, Any]:
         # POSTs are not retried: a retried publish could post the reply twice.
-        resp = self._http.post(f"{self._base}{path}", data={**data, "access_token": self._token})
+        resp = self._http.post(f"{self._base}{path}", data=data, headers=self._headers)
         return _json_or_raise(resp)
 
     # -- endpoints -----------------------------------------------------------
