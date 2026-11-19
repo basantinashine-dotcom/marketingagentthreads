@@ -1,0 +1,60 @@
+# Copy to config.toml and edit. Secrets (THREADS_ACCESS_TOKEN, ANTHROPIC_API_KEY)
+# come from environment variables, never from this file.
+
+[voice]
+# Replies are posted from your own Threads account, in your voice. List true
+# things the drafts may mention. The model is told never to invent anything
+# beyond this list, and the reviewer flags any personal claim for you to check.
+facts = [
+    "I made lettersfornewmom.com",
+    # "I'm a mom of a 2-year-old",
+    # "The first months after birth were harder than I expected",
+]
+# Optional: how you write.
+style = "warm and plain, like a text to a friend; no exclamation marks"
+
+[site]
+description = """
+lettersfornewmom.com is free and needs no sign-up. Each day it shows one \
+encouraging quote and one real letter from another mother, and invites you to \
+write a letter back for the next new mom. Letters can be saved in a keepsake box.\
+"""
+# Replaces [LINK] in replies. UTM tags show Threads traffic in your analytics.
+link_url = "https://lettersfornewmom.com/?utm_source=threads&utm_medium=social&utm_campaign=replies"
+# Share of replies (trailing window) that may carry the link. 1.0 = every reply.
+max_link_ratio = 0.67
+ratio_window_days = 7
+
+# Phase 2 only: needs Meta's approval of threads_keyword_search.
+[search]
+keywords = [
+    "postpartum",
+    "postpartum depression",
+    "postpartum anxiety",
+    "postpartum rage",
+    "fourth trimester",
+    "new mom lonely",
+    "first time mom",
+    "newborn exhausted",
+    "matrescence",
+]
+tags = ["postpartum"]          # topic tags, searched with search_mode=TAG
+search_type = "RECENT"         # RECENT or TOP
+max_post_age_hours = 36
+results_per_query = 25
+min_text_length = 25
+
+[limits]
+max_drafts_per_run = 25        # Claude calls per `discover`
+max_posts_per_day = 10
+seconds_between_posts = 300
+author_cooldown_days = 30      # never reply to the same person twice in this window
+max_reply_age_hours = 72       # don't post a reply under a post older than this
+retention_days = 30            # post text is wiped from the local DB after this
+
+[model]
+name = "claude-opus-5-5"
+effort = "medium"              # low | medium | high
+
+[storage]
+db_path = "outreach.db"
