@@ -1,8 +1,8 @@
 # marketingagentthreads
 
-Grows conversations about postpartum life on Threads, from your own account:
+Grows conversations about life on Threads, from your own account:
 
-1. **New posts.** Claude drafts short posts in your voice that invite mothers to answer.
+1. **New posts.** Claude drafts short posts in your voice that invite users to answer.
 2. **Replies.** It collects comments on your recent posts and drafts a warm reply to each one.
 3. **You approve.** Nothing is published until you approve it. Then it posts, paced and capped.
 
