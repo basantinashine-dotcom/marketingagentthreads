@@ -121,7 +121,7 @@ class Store:
         if kind is not None:
             sql += " AND kind = ?"
             args += (kind,)
-        sql += " ORDER BY discovered_at"
+        sql += " ORDER BY discovered_at, rowid"
         if limit is not None:
             sql += " LIMIT ?"
             args += (limit,)
