@@ -150,3 +150,44 @@ def test_cli_draft_list_approve_skip(cfg, capsys):
     assert "skipped" in capsys.readouterr().out
     main(["--config", config, "draft", "c42", "--category", "crisis", "--body", "x"])
     assert "skipped (category:crisis)" in capsys.readouterr().out
+
+
+def test_publish_waits_through_container_not_found():
+    statuses = iter([httpx.Response(400, json={"error": {"message": "does not exist", "code": 24}}),
+                     httpx.Response(200, json={"status": "FINISHED"})])
+
+    def handler(request: httpx.Request):
+        if request.method == "POST" and request.url.path.endswith("/me/threads"):
+            return httpx.Response(200, json={"id": "c1"})
+        if request.url.path.endswith("/c1"):
+            return next(statuses)
+        if request.url.path.endswith("/threads_publish"):
+            return httpx.Response(200, json={"id": "m1"})
+        raise AssertionError(request.url)
+
+    client = ThreadsClient("tok", http=httpx.Client(transport=httpx.MockTransport(handler)), sleep=lambda s: None)
+    assert client.publish("hello") == "m1"
+
+
+def test_failed_publish_stops_instead_of_skipping_ahead(cfg, store, capsys):
+    first = store.add_new_post("First post.", "", "a", NOW)
+    second = store.add_new_post("Second post.", "", "b", NOW)
+    store.approve(first, "First post.", False, NOW)
+    store.approve(second, "Second post.", False, NOW)
+
+    class Flaky(FakeThreads):
+        def publish(self, text, reply_to_id=None):
+            if text == "First post.":
+                from outreach.threads_api import ThreadsAPIError
+                raise ThreadsAPIError(400, "does not exist", 24)
+            return super().publish(text, reply_to_id)
+
+    threads = Flaky()
+    result = post_approved(cfg, threads, store, now_fn=lambda: NOW, sleep=lambda s: None, log=lambda m: None)
+    assert result.failed == 1 and result.posted == 0 and threads.published == []
+    assert "publishing failed" in result.stopped_because
+
+    # `approve` puts a failed item back in the queue, first in line.
+    main(["--config", str(cfg.db_path.parent / "config.toml"), "approve", first])
+    assert "queued again" in capsys.readouterr().out
+    assert [r.id for r in store.with_status("approved")] == [first, second]

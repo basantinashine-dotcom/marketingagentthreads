@@ -193,7 +193,13 @@ class ThreadsClient:
     def _wait_until_ready(self, creation_id: str, max_wait_s: float) -> None:
         waited = 0.0
         while True:
-            body = self._get(f"/{creation_id}", {"fields": "status,error_message"})
+            try:
+                body = self._get(f"/{creation_id}", {"fields": "status,error_message"})
+            except ThreadsAPIError as exc:
+                # A new container can briefly read as "does not exist" (code 24).
+                if exc.code != 24 or waited >= max_wait_s:
+                    raise
+                body = {"status": "IN_PROGRESS"}
             status = body.get("status", "FINISHED")
             if status == "FINISHED":
                 return

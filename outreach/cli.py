@@ -176,6 +176,10 @@ def cmd_approve(cfg: Config, store: Store, args: argparse.Namespace) -> None:
     now = _now()
     for ref in args.ids:
         row = _find(store, ref)
+        if row.status == "failed" and row.final_text:
+            problems = approve_text(cfg, store, row, row.final_text, now)
+            print(f"{row.id}: " + ("queued again" if not problems else "not queued: " + "; ".join(problems)))
+            continue
         if row.status != "drafted":
             print(f"{row.id}: is {row.status}, not a draft; left alone.")
             continue

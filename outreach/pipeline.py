@@ -322,7 +322,9 @@ def post_approved(
             store.mark_failed(row.id, str(exc))
             result.failed += 1
             log(f"  ! {target} failed: {exc}")
-            continue
+            # Stop rather than skip ahead, so approved items never go out of order.
+            result.stopped_because = f"publishing failed ({exc}); fix it, then `outreach approve {row.id}`"
+            break
         try:
             link = threads.permalink(media_id)
         except ThreadsAPIError:

@@ -92,8 +92,10 @@ def test_post_revalidates_and_handles_failures(cfg, store):
     threads = FakeThreads()
     threads.fail_reply_for = {"2"}
     result = post_approved(cfg, threads, store, now_fn=lambda: NOW, sleep=lambda s: None, log=lambda m: None)
-    assert result.failed == 2 and result.posted == 1
-    assert [r.id for r in store.with_status("posted")] == ["3"]
+    # Invalid text is set aside; a failed publish stops the run so nothing goes out of order.
+    assert result.failed == 2 and result.posted == 0
+    assert "publishing failed" in result.stopped_because
+    assert [r.id for r in store.with_status("approved")] == ["3"]
 
 
 def test_post_respects_author_cooldown_and_quota(cfg, store):
