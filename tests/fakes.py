@@ -54,6 +54,22 @@ class FakeThreads:
     def permalink(self, media_id):
         return f"https://www.threads.com/@me/post/{media_id}"
 
+    follower_count = 1200
+    insights_error = None
+
+    def followers(self):
+        if self.insights_error:
+            raise self.insights_error
+        return self.follower_count
+
+    def account_insights(self, since=None, until=None):
+        if self.insights_error:
+            raise self.insights_error
+        return {"views": 8400, "likes": 310, "replies": 95, "reposts": 12, "quotes": 3}
+
+    def post_insights(self, media_id):
+        return {"views": 900, "likes": 40, "replies": 12, "reposts": 1, "quotes": 0, "shares": 2}
+
 
 class FakeDrafter:
     """Maps post id -> Assessment (or None for a refusal)."""

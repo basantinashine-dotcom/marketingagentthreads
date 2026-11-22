@@ -15,6 +15,20 @@ style = """short and casual, like texting a friend; one or two sentences; exclam
 a little humor is welcome. Skip polished or formal phrasing such as "Thank you for sharing this", \
 "deserve to know", "so real" or "I hear you"."""
 
+# For `outreach agent`. Claude works toward this goal; you still approve everything.
+[goal]
+statement = "Grow my Threads following among new mothers by starting genuine, kind conversations about the first year after birth."
+audience = "mothers in the first year after birth, and people who support them"
+# Tactics the agent must never use, in your words. Code also blocks follow-begging,
+# engagement bait and rage bait in anything it proposes.
+never = [
+    "posting about other people's babies, bodies or choices",
+    "using someone's hard day as an example in a post",
+]
+max_proposals_per_run = 5      # replies and posts it may queue for your review per run
+max_notes_per_run = 3          # notes it may save about what's working
+max_turns = 20                 # Claude turns per run
+
 [site]
 description = """
 lettersfornewmom.com is free and needs no sign-up. Each day it shows one \

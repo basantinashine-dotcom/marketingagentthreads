@@ -7,6 +7,8 @@ Endpoints (https://graph.threads.net/v1.0):
   GET  /{container_id}?fields=status     wait for the container to be ready
   POST /me/threads_publish               publish the container
   GET  /me/threads_publishing_limit      reply quota usage
+  GET  /me/threads_insights              account views, likes, replies, followers (threads_manage_insights)
+  GET  /{media_id}/insights              one post's views, likes, replies, reposts (threads_manage_insights)
 """
 
 from __future__ import annotations
@@ -23,6 +25,8 @@ SEARCH_FIELDS = "id,text,media_type,permalink,timestamp,username"
 
 
 COMMENT_FIELDS = "id,text,username,permalink,timestamp,replied_to,hide_status"
+ACCOUNT_METRICS = "views,likes,replies,reposts,quotes"
+POST_METRICS = "views,likes,replies,reposts,quotes,shares"
 
 
 @dataclass(frozen=True)
@@ -187,6 +191,24 @@ class ThreadsClient:
         published = self._post("/me/threads_publish", {"creation_id": creation_id})
         return published["id"]
 
+    def account_insights(self, *, since: int | None = None, until: int | None = None) -> dict[str, int]:
+        """Totals for your account over a time range: views, likes, replies, reposts, quotes."""
+        params: dict[str, Any] = {"metric": ACCOUNT_METRICS}
+        if since is not None:
+            params["since"] = since
+        if until is not None:
+            params["until"] = until
+        return _metric_totals(self._get("/me/threads_insights", params))
+
+    def followers(self) -> int:
+        """Your current follower count."""
+        totals = _metric_totals(self._get("/me/threads_insights", {"metric": "followers_count"}))
+        return totals.get("followers_count", 0)
+
+    def post_insights(self, media_id: str) -> dict[str, int]:
+        """One post's lifetime views, likes, replies, reposts, quotes and shares."""
+        return _metric_totals(self._get(f"/{media_id}/insights", {"metric": POST_METRICS}))
+
     def permalink(self, media_id: str) -> str:
         return self._get(f"/{media_id}", {"fields": "permalink"}).get("permalink", "")
 
@@ -209,6 +231,23 @@ class ThreadsClient:
                 raise ThreadsAPIError(0, f"container {creation_id} not ready after {max_wait_s:.0f}s")
             self._sleep(2.0)
             waited += 2.0
+
+
+def _metric_totals(body: dict[str, Any]) -> dict[str, int]:
+    """Insights come back as {"data": [{"name": ..., "total_value": {"value": N}}]} or, for
+    metrics reported per day, {"name": ..., "values": [{"value": N}, ...]}. Returns name -> total."""
+    totals: dict[str, int] = {}
+    for item in body.get("data", []):
+        name = item.get("name")
+        if not name:
+            continue
+        total = item.get("total_value")
+        if isinstance(total, dict) and isinstance(total.get("value"), (int, float)):
+            totals[name] = int(total["value"])
+        else:
+            totals[name] = int(sum(v.get("value", 0) for v in item.get("values", [])
+                                   if isinstance(v.get("value"), (int, float))))
+    return totals
 
 
 def _error_from(resp: httpx.Response) -> ThreadsAPIError:

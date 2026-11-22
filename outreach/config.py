@@ -56,6 +56,20 @@ class ModelConfig:
 
 
 @dataclass(frozen=True)
+class GoalConfig:
+    # What the growth agent (`outreach agent`) works toward. Followers are the long-run measure.
+    statement: str = (
+        "Grow my Threads following by starting genuine, kind conversations with the people I write for."
+    )
+    audience: str = ""
+    # Tactics the agent must never use, in your words. Code blocks the most common ones too.
+    never: list[str] = field(default_factory=list)
+    max_proposals_per_run: int = 5  # posts and replies it may queue for your review in one run
+    max_notes_per_run: int = 3      # notes it may save about what's working
+    max_turns: int = 20             # Claude turns per run, so a run always ends
+
+
+@dataclass(frozen=True)
 class Config:
     voice: VoiceConfig
     site: SiteConfig
@@ -63,6 +77,7 @@ class Config:
     limits: LimitsConfig
     model: ModelConfig
     db_path: Path
+    goal: GoalConfig = field(default_factory=GoalConfig)
 
 
 class ConfigError(ValueError):
@@ -83,6 +98,7 @@ def load_config(path: str | Path) -> Config:
             limits=LimitsConfig(**raw.get("limits", {})),
             model=ModelConfig(**raw.get("model", {})),
             db_path=(path.parent / raw.get("storage", {}).get("db_path", "outreach.db")),
+            goal=GoalConfig(**raw.get("goal", {})),
         )
     except (KeyError, TypeError) as exc:
         raise ConfigError(f"Invalid config in {path}: {exc}") from exc
@@ -100,6 +116,12 @@ def _validate(cfg: Config) -> None:
         raise ConfigError("site.max_link_ratio must be between 0 and 1.")
     if cfg.model.effort not in ("low", "medium", "high", "xhigh", "max"):
         raise ConfigError("model.effort must be low, medium, high, xhigh or max.")
+    if not 1 <= cfg.goal.max_proposals_per_run <= 10:
+        raise ConfigError("goal.max_proposals_per_run must be between 1 and 10.")
+    if not 0 <= cfg.goal.max_notes_per_run <= 10:
+        raise ConfigError("goal.max_notes_per_run must be between 0 and 10.")
+    if not 3 <= cfg.goal.max_turns <= 50:
+        raise ConfigError("goal.max_turns must be between 3 and 50.")
     if cfg.limits.retention_days < cfg.limits.author_cooldown_days:
         # The cooldown check reads usernames from the DB; wiping them sooner breaks it.
         raise ConfigError("limits.retention_days must be >= limits.author_cooldown_days.")

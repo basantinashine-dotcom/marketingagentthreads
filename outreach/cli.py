@@ -1,5 +1,9 @@
 """outreach: grow conversations on Threads from your own account.
 
+The growth agent (Claude decides what to look at and what to queue; you approve):
+    outreach agent            look at your numbers, notes and new comments, then queue
+                              a few replies and posts toward your [goal]
+
 Your posts and the replies under them (works with standard Threads API access):
     outreach inbox            collect new comments on your recent posts and draft replies
     outreach compose          draft new posts in your voice
@@ -92,6 +96,9 @@ def cmd_check(cfg: Config, store: Store, args: argparse.Namespace) -> None:
             )
             if comments is not None:
                 print(f"✓ Can read comments ({len(comments)} on your latest post)")
+    followers = attempt("read insights (needs threads_manage_insights, for `agent`)", threads.followers)
+    if followers is not None:
+        print(f"✓ Can read insights ({followers:,} followers)")
     quota = attempt("read your reply quota", threads.reply_quota)
     if quota is not None:
         print(f"✓ Reply quota: {quota[0]}/{quota[1]} used in the last 24h")
@@ -127,6 +134,29 @@ def cmd_compose(cfg: Config, store: Store, args: argparse.Namespace) -> None:
         sys.exit("`compose` needs a Claude API key (ANTHROPIC_API_KEY).")
     ids = compose_new_posts(cfg, _threads_client(), store, _drafter(cfg), args.count, _now())
     print(f"Drafted {len(ids)} new posts. Next: outreach review")
+
+
+def cmd_agent(cfg: Config, store: Store, args: argparse.Namespace) -> None:
+    from .agent import GrowthAgent
+
+    if not _has_claude_credentials():
+        sys.exit("`agent` needs a Claude API key (ANTHROPIC_API_KEY).")
+    print(f"Goal: {cfg.goal.statement.strip()}")
+    print(f"Queueing at most {cfg.goal.max_proposals_per_run} items this run.\n")
+    agent = GrowthAgent(cfg, _threads_client(), store, _drafter(cfg), now_fn=_now)
+    run = agent.run()
+    print()
+    if run.summary:
+        print(run.summary)
+        print()
+    print(f"Queued {len(run.queued)} for your review ({run.tool_calls} tool calls).")
+    if run.rejected:
+        print(f"The rules turned down {len(run.rejected)} proposals.")
+    for category, user, link in run.needs_you:
+        print(f"  ! @{user} left a comment that looks like {category.replace('_', ' ')}. "
+              f"No automatic reply. You may want to look: {link}")
+    if run.queued:
+        print("Next: outreach review")
 
 
 def cmd_list(cfg: Config, store: Store, args: argparse.Namespace) -> None:
@@ -253,7 +283,7 @@ def cmd_purge(cfg: Config, store: Store, args: argparse.Namespace) -> None:
 
 
 COMMANDS = {
-    "check": cmd_check, "inbox": cmd_inbox, "compose": cmd_compose, "review": cmd_review,
+    "agent": cmd_agent, "check": cmd_check, "inbox": cmd_inbox, "compose": cmd_compose, "review": cmd_review,
     "list": cmd_list, "draft": cmd_draft, "approve": cmd_approve, "skip": cmd_skip,
     "post": cmd_post, "discover": cmd_discover, "stats": cmd_stats, "purge": cmd_purge,
 }

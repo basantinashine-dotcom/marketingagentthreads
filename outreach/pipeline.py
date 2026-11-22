@@ -185,37 +185,59 @@ def inbox(
         return result
 
     for row in store.with_status("new", limit=cfg.limits.max_drafts_per_run, kind="comment"):
-        comment = ThreadsPost(
-            id=row.id, text=row.text, username=row.username, permalink=row.permalink, timestamp=row.posted_at
-        )
         try:
-            assessment = drafter.assess(comment, context=row.context)
+            outcome = draft_comment(store, drafter, row)
         except (anthropic.APIError, RuntimeError) as exc:
             result.errors.append(f"draft {row.id}: {exc}")
             log(f"  ! drafting a reply to @{row.username} failed: {exc}")
             continue
-        if assessment is None:
-            store.skip(row.id, "model:declined")
-            result.skipped["model:declined"] += 1
-            continue
-        decision = policy.decide(assessment.category, assessment.should_reply, assessment.reply_body)
-        drafted = decision.status == "drafted"
-        store.save_draft(
-            row.id,
-            status=decision.status,
-            category=assessment.category.value,
-            rationale=assessment.rationale,
-            body=assessment.reply_body if drafted else "",
-            link_line=assessment.link_line if drafted else "",
-            skip_reason=decision.reason,
-        )
-        if drafted:
+        if outcome.status == "drafted":
             result.drafted += 1
         else:
-            result.skipped[decision.reason] += 1
-            if assessment.category in policy.NEEDS_YOU:
-                result.needs_you.append((assessment.category.value, row.username, row.permalink))
+            result.skipped[outcome.reason] += 1
+            if outcome.needs_you:
+                result.needs_you.append((outcome.category, row.username, row.permalink))
     return result
+
+
+@dataclass(frozen=True)
+class CommentDraft:
+    status: str  # "drafted" or "skipped"
+    reason: str = ""
+    category: str = ""
+    body: str = ""
+
+    @property
+    def needs_you(self) -> bool:
+        return bool(self.category) and policy.Category(self.category) in policy.NEEDS_YOU
+
+
+def draft_comment(store: Store, drafter: Drafter, row) -> CommentDraft:
+    """Classifies one stored comment, drafts a reply if the rules allow one, and saves the outcome.
+
+    Used by `inbox` and by the growth agent, so a reply always goes through the same
+    classifier and never-reply rules, whoever asked for it. Raises on API errors.
+    """
+    comment = ThreadsPost(
+        id=row.id, text=row.text, username=row.username, permalink=row.permalink, timestamp=row.posted_at
+    )
+    assessment = drafter.assess(comment, context=row.context)
+    if assessment is None:
+        store.skip(row.id, "model:declined")
+        return CommentDraft("skipped", "model:declined")
+    decision = policy.decide(assessment.category, assessment.should_reply, assessment.reply_body)
+    drafted = decision.status == "drafted"
+    store.save_draft(
+        row.id,
+        status=decision.status,
+        category=assessment.category.value,
+        rationale=assessment.rationale,
+        body=assessment.reply_body if drafted else "",
+        link_line=assessment.link_line if drafted else "",
+        skip_reason=decision.reason,
+    )
+    return CommentDraft(decision.status, decision.reason, assessment.category.value,
+                        assessment.reply_body if drafted else "")
 
 
 def compose_new_posts(
