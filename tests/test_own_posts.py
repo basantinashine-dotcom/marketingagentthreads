@@ -191,3 +191,16 @@ def test_failed_publish_stops_instead_of_skipping_ahead(cfg, store, capsys):
     main(["--config", str(cfg.db_path.parent / "config.toml"), "approve", first])
     assert "queued again" in capsys.readouterr().out
     assert [r.id for r in store.with_status("approved")] == [first, second]
+
+
+def test_post_only_replies_leaves_queued_posts_alone(cfg, store):
+    pid = store.add_new_post("Tomorrow's post.", "", "x", NOW)
+    store.approve(pid, "Tomorrow's post.", False, NOW)
+    store.add_post(comment("c1", "alice"), "comment", NOW + timedelta(hours=1), kind="comment", context="p")
+    store.approve("c1", "Glad you said it!", False, NOW)
+    threads = FakeThreads()
+    from outreach.pipeline import REPLY_KINDS
+    result = post_approved(cfg, threads, store, now_fn=lambda: NOW, sleep=lambda s: None,
+                           kinds=REPLY_KINDS, log=lambda m: None)
+    assert result.posted == 1 and threads.replies == [("c1", "Glad you said it!")] and threads.published == []
+    assert [r.id for r in store.with_status("approved")] == [pid]

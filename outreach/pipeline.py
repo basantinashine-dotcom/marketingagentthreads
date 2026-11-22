@@ -249,8 +249,10 @@ def post_approved(
     sleep: Callable[[float], None],
     dry_run: bool = False,
     max_posts: int | None = None,
+    kinds: tuple[str, ...] | None = None,
     log: Log = print,
 ) -> PostResult:
+    """Publishes approved items, oldest first. `kinds` limits it to e.g. ("post",) or REPLY_KINDS."""
     result = PostResult()
     now = now_fn()
     day_ago = now - timedelta(hours=24)
@@ -258,7 +260,7 @@ def post_approved(
     post_budget = cfg.limits.max_new_posts_per_day - store.posted_since(day_ago, kinds=("post",))
     total_budget = max_posts if max_posts is not None else reply_budget + post_budget
 
-    approved = store.with_status("approved")
+    approved = [r for r in store.with_status("approved") if kinds is None or r.kind in kinds]
     if not approved:
         result.stopped_because = "nothing approved to post"
         return result

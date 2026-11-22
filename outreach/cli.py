@@ -214,10 +214,12 @@ def cmd_review(cfg: Config, store: Store, args: argparse.Namespace) -> None:
 
 
 def cmd_post(cfg: Config, store: Store, args: argparse.Namespace) -> None:
-    from .pipeline import post_approved
+    from .pipeline import REPLY_KINDS, post_approved
 
+    kinds = {"posts": ("post",), "replies": REPLY_KINDS}.get(args.only)
     result = post_approved(
-        cfg, _threads_client(), store, now_fn=_now, sleep=time.sleep, dry_run=args.dry_run, max_posts=args.max
+        cfg, _threads_client(), store, now_fn=_now, sleep=time.sleep, dry_run=args.dry_run,
+        max_posts=args.max, kinds=kinds,
     )
     verb = "Would publish" if args.dry_run else "Published"
     print(f"{verb} {result.posted}; failed {result.failed}; skipped {sum(result.skipped.values())}.")
@@ -286,6 +288,7 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "post":
             p.add_argument("--dry-run", action="store_true", help="show what would be published")
             p.add_argument("--max", type=int, default=None, help="publish at most this many now")
+            p.add_argument("--only", choices=["posts", "replies"], help="publish only your posts, or only replies")
     return parser
 
 
