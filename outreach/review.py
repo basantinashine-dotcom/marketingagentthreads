@@ -25,7 +25,9 @@ def category_of(row: Row) -> Category | None:
     return Category(row.category) if row.category else None
 
 
-def can_link(row: Row) -> bool:
+def can_link(row: Row, cfg: Config | None = None) -> bool:
+    if row.kind != "post" and cfg is not None and not cfg.site.links_in_replies:
+        return False
     return policy.link_allowed(category_of(row), row.draft_link_line or "", kind=row.kind)
 
 
@@ -45,7 +47,9 @@ def approve_text(cfg: Config, store: Store, row: Row, text: str, now: datetime) 
     """Approves `text` for `row` if it passes every rule. Returns the problems otherwise."""
     problems = policy.validate(text, cfg.site.link_url)
     has_link = cfg.site.link_url in text
-    if has_link and not link_budget_ok(cfg, store, now):
+    if has_link and row.kind != "post" and not cfg.site.links_in_replies:
+        problems.append("links are turned off for replies (site.links_in_replies)")
+    elif has_link and not link_budget_ok(cfg, store, now):
         problems.append("the link budget is used up for this week; approve it without the link")
     if not problems:
         store.approve(row.id, text, has_link, now)
@@ -120,7 +124,7 @@ def review(
 
     link_url = cfg.site.link_url
     for i, row in enumerate(drafts, start=1):
-        include_link = can_link(row) and link_budget_ok(cfg, store, now_fn())
+        include_link = can_link(row, cfg) and link_budget_ok(cfg, store, now_fn())
         edited: str | None = None
 
         while True:
@@ -143,8 +147,8 @@ def review(
                 edited = edit(text)
                 continue
             if choice == "l":
-                if not can_link(row):
-                    out("  No link line was drafted for this one.")
+                if not can_link(row, cfg):
+                    out("  No link for this one (none drafted, or links are off for replies).")
                     continue
                 if not include_link and not link_budget_ok(cfg, store, now_fn()):
                     out("  The link budget is used up for this week.")

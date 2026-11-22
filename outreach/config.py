@@ -23,6 +23,8 @@ class SiteConfig:
     # At most this share of your replies (trailing window) carry the link.
     max_link_ratio: float = 0.67
     ratio_window_days: int = 7
+    # False: the link only ever appears in your own posts, never in replies.
+    links_in_replies: bool = False
 
 
 @dataclass(frozen=True)

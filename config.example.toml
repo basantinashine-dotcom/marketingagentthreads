@@ -11,7 +11,9 @@ facts = [
     # "The first months after birth were harder than I expected",
 ]
 # Optional: how you write.
-style = "warm and plain, like a text to a friend; no exclamation marks"
+style = """short and casual, like texting a friend; one or two sentences; exclamation marks are fine; \
+a little humor is welcome. Skip polished or formal phrasing such as "Thank you for sharing this", \
+"deserve to know", "so real" or "I hear you"."""
 
 [site]
 description = """
@@ -24,6 +26,8 @@ link_url = "https://lettersfornewmom.com/?utm_source=threads&utm_medium=social&u
 # Share of replies (trailing window) that may carry the link. 1.0 = every reply.
 max_link_ratio = 0.67
 ratio_window_days = 7
+# false = never mention the site in replies or comments; links only in your own posts.
+links_in_replies = false
 
 # Only for `discover`, which needs Meta's App Review approval of threads_keyword_search.
 [search]

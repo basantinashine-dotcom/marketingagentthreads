@@ -140,7 +140,7 @@ def cmd_list(cfg: Config, store: Store, args: argparse.Namespace) -> None:
     now = _now()
     for row in rows:
         if args.status == "drafted":
-            text = compose_row(cfg, row, can_link(row) and link_budget_ok(cfg, store, now))
+            text = compose_row(cfg, row, can_link(row, cfg) and link_budget_ok(cfg, store, now))
         else:
             text = row.final_text or row.draft_body or ""
         print(describe(row, text, now))
@@ -183,7 +183,7 @@ def cmd_approve(cfg: Config, store: Store, args: argparse.Namespace) -> None:
         if row.status != "drafted":
             print(f"{row.id}: is {row.status}, not a draft; left alone.")
             continue
-        want_link = not args.no_link and can_link(row)
+        want_link = not args.no_link and can_link(row, cfg)
         if want_link and not link_budget_ok(cfg, store, now):
             print(f"{row.id}: link budget used up this week, so approving without the link.")
             want_link = False

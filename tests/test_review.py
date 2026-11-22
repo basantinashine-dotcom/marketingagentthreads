@@ -1,3 +1,5 @@
+import dataclasses
+
 from outreach.review import review
 
 from .conftest import NOW, make_post
@@ -19,6 +21,7 @@ def run(cfg, store, answers, edit=lambda t: t):
 
 
 def test_approve_with_link_then_budget_limits_links(cfg, store):
+    cfg = dataclasses.replace(cfg, site=dataclasses.replace(cfg.site, links_in_replies=True))
     for i, user in enumerate(["a", "b", "c", "d"]):
         _draft(store, str(i), user)
     counts, output = run(cfg, store, ["a", "a", "a", "a"])
@@ -31,7 +34,16 @@ def test_approve_with_link_then_budget_limits_links(cfg, store):
         assert "I made" in r.final_text or not r.includes_link
 
 
+def test_replies_never_carry_the_link_by_default(cfg, store):
+    _draft(store, "1", "a")
+    counts, output = run(cfg, store, ["l", "a"])
+    [row] = store.with_status("approved")
+    assert "lettersfornewmom.com" not in row.final_text and not row.includes_link
+    assert "links are off for replies" in output
+
+
 def test_skip_edit_toggle_and_quit(cfg, store):
+    cfg = dataclasses.replace(cfg, site=dataclasses.replace(cfg.site, links_in_replies=True))
     _draft(store, "1", "a")
     _draft(store, "2", "b")
     _draft(store, "3", "c")
