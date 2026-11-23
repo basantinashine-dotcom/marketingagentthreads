@@ -170,3 +170,33 @@ _WARNINGS: list[tuple[str, re.Pattern[str]]] = [
 def warnings(text: str) -> list[str]:
     """Soft flags shown to the reviewer. They don't block approval."""
     return [label for label, pattern in _WARNINGS if pattern.search(text)]
+
+
+# -- growth guardrails ----------------------------------------------------------
+# A model told to grow followers drifts toward whatever moves the number fastest.
+# These patterns block the common shortcuts in anything the growth agent proposes.
+
+_GROWTH_TRAPS: list[tuple[str, re.Pattern[str]]] = [
+    (
+        "asks people to follow, or offers follows",
+        re.compile(r"\bfollow (?:me|back|for|along|my)\b|\bf4f\b|\bfollow ?4 ?follow\b", re.I),
+    ),
+    (
+        "engagement bait (asks for likes, comments, reposts or tags as a trade)",
+        re.compile(
+            r"\b(?:like|repost|share|save) (?:this )?if\b|\b(?:comment|reply|type|drop) (?:yes|no|below|"
+            r"an? (?:emoji|heart)|\W?\w+\W? if)\b|\btag (?:a|someone|your|3|three)\b|\bsmash (?:that|the)\b",
+            re.I,
+        ),
+    ),
+    (
+        "rage bait or a manufactured hot take",
+        re.compile(r"\bunpopular opinion\b|\bhot take\b|\bfight me\b|\bchange my mind\b|\bnobody (?:is|wants to) talk", re.I),
+    ),
+]
+
+
+def growth_problems(text: str) -> list[str]:
+    """Hard errors for posts the growth agent proposes, on top of validate()."""
+    return [label for label, pattern in _GROWTH_TRAPS if pattern.search(text)]
+

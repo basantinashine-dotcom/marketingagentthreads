@@ -45,6 +45,17 @@ CREATE TABLE IF NOT EXISTS posts (
 );
 CREATE INDEX IF NOT EXISTS posts_status ON posts(status);
 CREATE INDEX IF NOT EXISTS posts_username ON posts(username);
+-- The growth agent's memory: what it learned, and the follower count each day it ran.
+CREATE TABLE IF NOT EXISTS notes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    text       TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS followers (
+    day         TEXT PRIMARY KEY,
+    count       INTEGER NOT NULL,
+    recorded_at TEXT NOT NULL
+);
 """
 # Columns added after the first release, for databases created before them.
 MIGRATIONS = {
@@ -224,6 +235,37 @@ class Store:
             (_iso(since), _iso(since)),
         ).fetchone()
         return int(row[0]), int(row[1])
+
+    def pending(self, kinds: tuple[str, ...]) -> int:
+        """Drafts and approved items of these kinds that haven't been published yet."""
+        sql = f"SELECT COUNT(*) FROM posts WHERE status IN ('drafted', 'approved') AND kind IN ({','.join('?' * len(kinds))})"
+        return self._db.execute(sql, kinds).fetchone()[0]
+
+    # -- the growth agent's memory ------------------------------------------
+
+    def add_note(self, text: str, now: datetime) -> None:
+        self._db.execute("INSERT INTO notes (created_at, text) VALUES (?, ?)", (_iso(now), text))
+        self._db.commit()
+
+    def recent_notes(self, limit: int = 20) -> list[tuple[str, str]]:
+        """(created_at, text), oldest first, of the last `limit` notes."""
+        rows = self._db.execute(
+            "SELECT created_at, text FROM notes ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [(r["created_at"], r["text"]) for r in reversed(rows)]
+
+    def record_followers(self, count: int, now: datetime) -> None:
+        self._db.execute(
+            "INSERT INTO followers (day, count, recorded_at) VALUES (?, ?, ?)"
+            " ON CONFLICT(day) DO UPDATE SET count = excluded.count, recorded_at = excluded.recorded_at",
+            (now.date().isoformat(), count, _iso(now)),
+        )
+        self._db.commit()
+
+    def follower_history(self, limit: int = 30) -> list[tuple[str, int]]:
+        """(day, count), oldest first, of the last `limit` days the agent ran."""
+        rows = self._db.execute("SELECT day, count FROM followers ORDER BY day DESC LIMIT ?", (limit,)).fetchall()
+        return [(r["day"], r["count"]) for r in reversed(rows)]
 
     # -- reporting & retention ----------------------------------------------
 
