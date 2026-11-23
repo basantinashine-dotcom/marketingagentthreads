@@ -204,3 +204,21 @@ def test_post_only_replies_leaves_queued_posts_alone(cfg, store):
                            kinds=REPLY_KINDS, log=lambda m: None)
     assert result.posted == 1 and threads.replies == [("c1", "Glad you said it!")] and threads.published == []
     assert [r.id for r in store.with_status("approved")] == [pid]
+
+
+def test_publish_retries_once_when_new_container_is_not_found():
+    creates = []
+    def handler(request: httpx.Request):
+        if request.method == "POST" and request.url.path.endswith("/me/threads"):
+            creates.append(1)
+            return httpx.Response(200, json={"id": f"c{len(creates)}"})
+        if request.url.path.endswith("/c1"):  # first container never shows up
+            return httpx.Response(400, json={"error": {"message": "does not exist", "code": 24}})
+        if request.url.path.endswith("/c2"):
+            return httpx.Response(200, json={"status": "FINISHED"})
+        if request.url.path.endswith("/threads_publish"):
+            assert dict(httpx.QueryParams(request.content.decode()))["creation_id"] == "c2"
+            return httpx.Response(200, json={"id": "m2"})
+        raise AssertionError(request.url)
+    client = ThreadsClient("tok", http=httpx.Client(transport=httpx.MockTransport(handler)), sleep=lambda s: None)
+    assert client.reply("123", "hi") == "m2" and len(creates) == 2

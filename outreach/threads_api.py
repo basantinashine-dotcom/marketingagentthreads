@@ -172,18 +172,27 @@ class ThreadsClient:
             )
         return comments
 
-    def reply(self, reply_to_id: str, text: str, *, max_wait_s: float = 30.0) -> str:
+    def reply(self, reply_to_id: str, text: str, *, max_wait_s: float = 60.0) -> str:
         """Publishes a text reply. Returns the new post's media id."""
         return self.publish(text, reply_to_id=reply_to_id, max_wait_s=max_wait_s)
 
-    def publish(self, text: str, *, reply_to_id: str | None = None, max_wait_s: float = 30.0) -> str:
+    def publish(self, text: str, *, reply_to_id: str | None = None, max_wait_s: float = 60.0) -> str:
         """Publishes a text post, or a reply when reply_to_id is given. Returns its media id."""
         data: dict[str, Any] = {"media_type": "TEXT", "text": text}
         if reply_to_id:
             data["reply_to_id"] = reply_to_id
-        container = self._post("/me/threads", data)
-        creation_id = container["id"]
-        self._wait_until_ready(creation_id, max_wait_s)
+        # Creating and checking a container publishes nothing, so a transient
+        # "does not exist" (code 24) there is safe to retry once. The publish
+        # call itself is never retried: that could post twice.
+        for attempt in range(2):
+            try:
+                creation_id = self._post("/me/threads", data)["id"]
+                self._wait_until_ready(creation_id, max_wait_s)
+                break
+            except ThreadsAPIError as exc:
+                if exc.code != 24 or attempt == 1:
+                    raise
+                self._sleep(10.0)
         published = self._post("/me/threads_publish", {"creation_id": creation_id})
         return published["id"]
 
